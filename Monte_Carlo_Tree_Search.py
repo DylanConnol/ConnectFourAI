@@ -2,7 +2,7 @@ import math
 import pickle
 import numpy as np
 import time
-from ConnectFourClass import Board
+from ConnectFourBoard import Board
 import random
 from NeuralNetwork import NeuralNetwork
 
