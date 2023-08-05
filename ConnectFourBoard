@@ -1,0 +1,218 @@
+
+import random
+
+# The Board class, with all the respective methods:
+class Board:
+    def __init__(self, height, width):
+        """initializes the board class with attributes height, width, and slots"""
+        # initialize height and width
+        self.height = height
+        self.width = width
+
+        # create the slots attribute with empty spaces in each index
+        self.slots = [[' '] * self.width for row in range(self.height)]
+
+    def __repr__(self):
+        """ Returns a string representation for a Board object."""
+        s = ''  # begin with an empty string
+
+        # add one row of slots at a time
+        for row in range(self.height):
+            s += '|'  # one vertical bar at the start of the row
+
+            for col in range(self.width):
+                s += self.slots[row][col] + '|'
+
+            s += '\n'  # newline at the end of the row
+
+        # Add code here for the hyphens at the bottom of the board
+        # and the numbers underneath it.
+        # add a 2 hyphens for each column
+        for col in range(self.width):
+            s += '--'
+        # add one more hyphen to format properly
+        s += '-'
+        # add the new line, plus a space to format correclty
+        s += '\n '
+        # cycle through each column and add the column name, modulo 10
+        for col in range(self.width):
+            s += str(col % 10) + ' '
+        # return the string
+        return s
+
+
+
+    def to_string(self):
+        s = ''
+        for i in range(len(self.slots)):
+            for j in range(len(self.slots[i])):
+                s += self.slots[i][j]
+        return s
+
+
+    def from_string(self, string):
+        for i in range(len(string)):
+            self.slots[i//self.width][i%self.width] = string[i]
+
+    def add_checker(self, checker, col):
+        """ Adds the specified checker in the specified column """
+        # assert that the information entered is correct
+        assert (checker == 'X' or checker == 'O')
+        assert (0 <= col < self.width)
+
+        # cycle over each slot in the specified column
+        for i in range(0, self.height):
+            if self.slots[i][col] != ' ':
+                # if the slot is taken up (i.e. not a ' '), that means the checker should go in the previous height slot
+                self.slots[i - 1][col] = checker
+                return
+        # at this point, the only available slot is the bottom one, so we should simply set the current slot of i, which is
+        # equal to self.height - 1, equal to checker
+        self.slots[i][col] = checker
+
+
+    def run_game_randomly(self, start_checker):
+        """Finishes the game with random moves and returns the winner, or 'Tie' if it is a draw"""
+        options = []
+        turns = 0
+        while not self.is_full():
+            if self.is_win_for("X"):
+                return "X"
+            if self.is_win_for("O"):
+                return "O"
+            for i in range(self.width):
+                if self.can_add_to(i):
+                    options += [i]
+            x = random.choice(options)
+            if turns % 2:
+                self.add_checker(start_checker, x)
+            else:
+                self.add_checker("O"*(start_checker == "X") + "X"*(start_checker == "O"), x)
+            turns += 1
+        return "Tie"
+
+
+    def reset(self):
+        """Resets the board to its initial status of only space characters"""
+        # simply reinitialize the board to reset it
+        self.__init__(self.height, self.width)
+
+    # put the rest of the method here
+    def add_checkers(self, columns):
+        """ takes in a string of column numbers and places alternating
+            checkers in those columns of the called Board object,
+            starting with 'X'.
+        """
+        checker = 'X'  # start by playing 'X'
+
+        for col_str in columns:
+            col = int(col_str)
+            if 0 <= col < self.width:
+                self.add_checker(checker, col)
+
+            # switch to the other checker
+            if checker == 'X':
+                checker = 'O'
+            else:
+                checker = 'X'
+
+    def can_add_to(self, col):
+        """Checks whether or not you can add to inputted column, and whether or not the inputted column is valid"""
+        # all you need to do is check if row 0 of the specified column is a space and check if the column is valid
+        return 0 <= col < self.width and self.slots[0][col] == ' '
+
+    def is_full(self):
+        """Checks to see if the board is full or not, returns True if it is full otherwise False"""
+        # simply run over each column. If one column can be added too, then it's not full
+        for i in range(self.width):
+            if self.can_add_to(i): return False
+        # at this point, no columns can be added to, so the board is filled
+        return True
+
+    def remove_checker(self, col):
+        """removes the top checker from column col of the called Board object.
+         If the column is empty, then the method should do nothing."""
+        # cycle through each slot in the column
+        for i in range(self.height):
+            # upon the first slot that isn't empty, make it empty and return
+            if self.slots[i][col] != ' ':
+                self.slots[i][col] = ' ';
+                return
+
+    def is_win_for(self, checker):
+        """Determines if the board is a win for the inputted checker, either 'X' or 'O'"""
+
+        # NOTE: I did not code it up in the way that was suggested, with making different definitions for each different
+        # way to win. This is because it is far more computationally taxing to do it that way, and has a way lower time
+        # complexity to code it this way. This will matter if I decided to code a Neural Network for the connect 4 AI, which
+        # i am considering doing
+
+        # first assert that the checker is either X or O
+        assert (checker == 'X' or checker == 'O')
+        # intialize all of these lists. Each list will check for a different type of win, as directed by its name
+        vertical = [0] * self.width
+        horizontal = [0] * self.height
+        # diagonal right and diagonal_left store the amount of checkers from the given point that are diagonally left
+        # upwards or diagonally right upwards
+        diagonal_right = [0] * self.width
+        diagonal_left = [0] * self.width
+        # cycle through each slot to determine if that slot designates a win
+        for row in range(self.height):
+            for col in range(self.width):
+                # determine if it is the correct checker or not
+                if self.slots[row][col] == checker:
+                    # vertical is storing the amount of continuous checkers above this given slot that have the value of Checker.
+                    # so we need to add one to that, to continue this list properly
+                    vertical[col] += 1
+
+                    # similarly horizontal is storing the amount of continuous checkers to the left of this slot that have the value of Checker
+                    # so we just need to add one to that value, to update it properly
+                    horizontal[row] += 1
+                    if col != self.width - 1:
+                        # diagonal right stores the amount of continuous checkers to the diagonal upwards right of the checker. So we add one to the respective value,
+                        # utilizing the current values in the list
+                        diagonal_right[col] = diagonal_right[col + 1] + 1
+                    else:
+                        # in this instance, it is at the last column so the checker can't have any continuous checkers to the right of it, that doesn't make sense
+                        diagonal_right[col] = 0
+                else:
+                    # if there is no checker here, we reset these value to 0 because it breaks continuity
+                    vertical[col] = 0
+                    horizontal[row] = 0
+                    diagonal_right[col] = 0
+                # now all we need to do is do the reverse check of diagonal_right for diagonal_left. It's the same logic,
+                # but we go in the reverse order from rigth to left looking through the list
+                if self.slots[row][self.width - 1 - col] == checker:
+
+                    if col != self.width - 1:
+                        # diagonal right stores the amount of continuous checkers to the diagonal upwards right of the checker. So we add one to the respective value,
+                        # utilizing the current values in the list
+                        diagonal_left[self.width - 1 - col] = diagonal_left[self.width - 2 - col] + 1
+                    else:
+                        # in this instance, it is at the first column so the checker can't have any continuous checkers to the left of it, that doesn't make sense
+                        diagonal_left[self.width - 1 - col] = 0
+                else:
+                    # if there is no checker here, we reset this value to 0 because it breaks continuity
+                    diagonal_left[self.width - 1 - col] = 0
+                # Finally we simply check if any of the respective values equals 4. If they do, then that means there has been 4 in a row
+                if diagonal_left[self.width - 1 - col] == 4 or horizontal[row] == 4 or vertical[col] == 4 or \
+                        diagonal_right[col] == 4:
+                    return True
+        # at this point, we've cycled through each of the values wihtout seeing any 4 in a rows. So we can simply return False
+        return False
+
+
+if __name__ == '__main__':
+    b1 = Board(6, 7)
+    b1.add_checkers('54545454')
+    b1.add_checkers('22')
+    print(b1)
+    print(b1.is_win_for("O"))
+    # b = Board(6, 7)
+    # b.add_checkers('00102030')
+    # print(b.is_win_for('X'))
+    # print(b.is_win_for('O'))
+    # b2 = Board(6, 7)
+    # b2.add_checkers('23344545515')
+    # print(b2.is_win_for('X'))
+    # print(b2.is_win_for('O'))
