@@ -290,26 +290,13 @@ class MCTS:
     def evaluate_node(self, checker, nodes, node):
         inverse_checker = 'O' if checker == 'X' else 'X'
         self.main_board.from_string(node)
-        if self.main_board.is_win_for("X"):
+                if self.main_board.is_win_for("X" if checker == "O" else "O"):
             if node in nodes:
                 nodes[node][1] += 1
                 nodes[node][0] += self.win_reward if checker == "X" else self.loss_penalty
                 return -1 * (self.win_reward if checker == "X" else self.loss_penalty)
-            elif checker == "X":
-                nodes[node] = [self.win_reward, 1];
-                return -1 * self.win_reward
-            else:
-                nodes[node] = [self.loss_penalty, 1];
-                return -1 * self.loss_penalty
-        elif self.main_board.is_win_for("O"):
-            if node in nodes:
-                nodes[node][1] += 1;
-                nodes[node][0] += self.win_reward if checker == "O" else self.loss_penalty
-                return -1 * (self.win_reward if checker == "O" else self.loss_penalty)
-            elif checker == "O":
-                nodes[node] = [self.win_reward, 1]; return -1 * self.win_reward
-            else:
-                nodes[node] = [self.loss_penalty, 1]; return -1 * self.loss_penalty
+            nodes[node] = [self.loss_penalty, 1];
+            return -1 * self.loss_penalty
         elif self.main_board.is_full():
             if node in nodes:
                 nodes[node][1] += 1
