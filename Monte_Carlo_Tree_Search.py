@@ -5,7 +5,7 @@ import time
 from ConnectFourClass import Board
 import random
 from NeuralNetworkTemplate import NeuralNetwork
-
+import csv
 import copy
 
 class MCTS:
@@ -336,7 +336,8 @@ class MCTS:
         return -1*answer
 
 
-    def run_tree_search(self):
+    def run_tree_search(self, checker = None):
+        if checker == None: checker = self.checker
         # child_directory = {}
         nodes = {}
         board = self.first_board.to_string()
@@ -344,19 +345,20 @@ class MCTS:
         nodes[board] = [0,0]
         for i in range(self.num_iterations):
             self.current_iteration += 1
-            self.evaluate_node(self.checker, nodes, board)
-        answer =  max(self.get_child_nodes(board,self.checker), key= lambda x: -1*self.ucb1(nodes[x][0],nodes[x][1]))
+            self.evaluate_node(checker, nodes, board)
+        answer =  max(self.get_child_nodes(board,checker), key= lambda x: -1*self.ucb1(nodes[x][0],nodes[x][1]))
         self.first_board.from_string(answer)
+        return nodes[board], board
 
 
-    def run_tree_search_while_updating_NN(self, seconds_to_run_for, filename, learning_rate, update_rate = 1000):
-        with open(filename, 'rb') as neuralnet:
-            try:
+    def run_tree_search_while_updating_NN(self, seconds_to_run_for, filename, learning_rate, print_rate = 10, repetitions = 500):
+        try:
+            with open(filename, 'rb') as neuralnet:
                 NN = pickle.load(neuralnet)
                 print("Retrieved Neural Net!")
-            except:
-                neurons_in_layers = ((338, 255, 1))
-                NN = NeuralNetwork(neurons_in_layers)
+        except:
+            neurons_in_layers = ((338, 150, 1))
+            NN = NeuralNetwork(neurons_in_layers)
         nodes = {}
         board = self.first_board.to_string()
         self.learning_rate = learning_rate
@@ -365,23 +367,25 @@ class MCTS:
         t = 0; sm = 0; smnotsquared = 0
         while True:
             self.current_iteration += 1
-            self.evaluate_node_while_updating_NN(self.checker, nodes, board, NN, learning_rate)
-            loss = self.loss
+            for i in range(repetitions):
+                self.evaluate_node(self.checker, nodes, board)
+            loss = NN.gradient_descent([(self.convert_to_NN_readable(board, self.checker), nodes[board][0])], learning_rate)
+            # loss = self.loss
             # useless, loss = self.evaluate_node_while_updating_NN(self.checker, nodes, board, NN, learning_rate)
+            self.main_board.reset()
+            depth = random.randint(3, 10)
+            self.main_board.random_game_until_threshold("X", depth)
+            board = self.main_board.to_string()
+            nodes = {}
+            nodes[board] = [0, 0]
+
             new_time = time.time()
             if new_time - current_time >= seconds_to_run_for: break
             t += 1
-            if t % update_rate == 0:
+            if t % print_rate == 0:
                 t = 0;
-                self.main_board.reset()
-                depth = random.randint(3,10)
-                self.main_board.random_game_until_threshold("X", depth)
-                board = self.main_board.to_string()
-                nodes = {}
-                nodes[board] = [0,0]
-                print(f"Average Loss Squared: {sm/(update_rate)} per iteration\nTime Allotted: {new_time - current_time} seconds\n"
-                      f"Average Loss (Not Squared): {(smnotsquared/update_rate)}\n");
-                print(f"Running at move depth: {depth}\n")
+                print(f"Average Loss Squared: {sm/(print_rate)} per iteration\nTime Allotted: {new_time - current_time} seconds\n"
+                      f"Average Loss (Not Squared): {(smnotsquared/print_rate)}\n");
                 sm = 0; smnotsquared = 0
                 with open(filename, 'wb') as saves:
                     pickle.dump(NN, saves)
@@ -407,10 +411,47 @@ class MCTS:
 
 
 if __name__ == "__main__":
+    def assemble_training_data(num_iters, data_limit, filename):
+        nodes = []
+        with open(filename, mode='r') as file:
+            # reading the CSV file
+            csvFile = csv.reader(file)
+            for row in csvFile:
+                nodes += [row]
+        b1 = Board(6, 7)
+        mct = MCTS(b1, "X", num_iters, 25)
+        count = 1
+        start = len(nodes)
+        percent = start/data_limit * 100
+        for i in range(start, data_limit):
+            threshold = random.randint(3, 20)
+            if threshold % 2: checker = "O"
+            else: checker = "X"
+            b1.random_game_until_threshold("X", threshold)
+            val, node = mct.run_tree_search(checker)
+            nodes.append([node, val[0], checker, threshold])
+            b1.reset()
+            count += 1
+            if i/data_limit >= percent/100:
+                print(f"{percent}% . . . {i} completed");
+                percent += 0.1;
+                count = 0
+                with open(filename, 'wb') as output:
+                    np.savetxt(output, nodes, delimiter=",", fmt = "% s")
+        with open(filename, 'wb') as output:
+            np.savetxt(output, nodes, delimiter=",", fmt="% s")
+        return len(nodes)
+
+    #assemble training data:
+    assemble_training_data(100, 100000, 'training_data_rep_100.csv')
+
+
+    ## Vs person
     b1 = Board(6, 7)
     mct = MCTS(b1, "X", 100, 25)
     rival_mcts = MCTS(b1, "O", 10000, 25)
-    mct.run_tree_search_while_updating_NN(10000, "NeuralNetwork.pickle", 0.0001, update_rate=5000)
+    #seconds_to_run_for, filename, learning_rate, print_rate = 10, repetitions = 500
+    mct.run_tree_search_while_updating_NN(10000, "NeuralNetworkrep10.pickle", 0.00001, print_rate=1000, repetitions=10)
     print("Finished!")
     while True:
         mct.run_tree_search_with_neural_network("NeuralNetwork.pickle")
@@ -429,11 +470,12 @@ if __name__ == "__main__":
 
 
     # b1 = Board(6, 7)
-    # #Monte Carlo Search benchmark test against random
-    # mctTest = MCTS(b1, "X", 1000, 25)
+    # #Monte Carlo Search / Neural Network benchmark test against random
+    # mctTest = MCTS(b1, "X", 100, 25)
     # results_wld = [0, 0, 0]
     # while True:
-    #     mctTest.run_tree_search()
+    #     mctTest.run_tree_search_with_neural_network("NeuralNetwork.pickle")
+    #     # mctTest.run_tree_search()
     #     if b1.is_win_for("X"):
     #         results_wld[0] += 1
     #         b1.reset()
@@ -453,5 +495,31 @@ if __name__ == "__main__":
     #     if b1.is_full():
     #         results_wld[1] += 1
     #         print(f"Win Rate: {results_wld[0] / sum(results_wld)}\nLoss Rate: {results_wld[2] / sum(results_wld)}\n"
+    #               f"Num Games: {sum(results_wld)}\n")
+    #         b1.reset()
+
+
+    # # NN vs 1000 MCTS
+    # b1 = Board(6, 7)
+    # mct = MCTS(b1, "X", 100, 25)
+    # rival_mcts = MCTS(b1, "O", 1000, 25)
+    # results_wld = [0,0,0]
+    # # print("Finished!")
+    # while True:
+    #     mct.run_tree_search_with_neural_network("NeuralNetwork.pickle")
+    #     if b1.is_win_for("X"):
+    #         results_wld[0] += 1
+    #         b1.reset()
+    #         print(f"Win Rate for NN: {results_wld[0] / sum(results_wld)}\nLoss Rate for NN: {results_wld[2] / sum(results_wld)}\n"
+    #               f"Num Games: {sum(results_wld)}\n")
+    #     rival_mcts.run_tree_search()
+    #     if b1.is_win_for("O"):
+    #         results_wld[2] += 1
+    #         b1.reset()
+    #         print(f"Win Rate for NN: {results_wld[0] / sum(results_wld)}\nLoss Rate for NN: {results_wld[2] / sum(results_wld)}\n"
+    #               f"Num Games: {sum(results_wld)}\n")
+    #     if b1.is_full():
+    #         results_wld[1] += 1
+    #         print(f"Win Rate for NN: {results_wld[0] / sum(results_wld)}\nLoss Rate for NN: {results_wld[2] / sum(results_wld)}\n"
     #               f"Num Games: {sum(results_wld)}\n")
     #         b1.reset()
