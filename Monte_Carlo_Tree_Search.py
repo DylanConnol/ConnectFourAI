@@ -290,11 +290,11 @@ class MCTS:
     def evaluate_node(self, checker, nodes, node):
         inverse_checker = 'O' if checker == 'X' else 'X'
         self.main_board.from_string(node)
-                if self.main_board.is_win_for("X" if checker == "O" else "O"):
+        if self.main_board.is_win_for("X" if checker == "O" else "O"):
             if node in nodes:
                 nodes[node][1] += 1
-                nodes[node][0] += self.win_reward if checker == "X" else self.loss_penalty
-                return -1 * (self.win_reward if checker == "X" else self.loss_penalty)
+                nodes[node][0] += self.loss_penalty
+                return -1 * (self.loss_penalty)
             nodes[node] = [self.loss_penalty, 1];
             return -1 * self.loss_penalty
         elif self.main_board.is_full():
@@ -317,7 +317,7 @@ class MCTS:
                 answer = self.evaluate_node(inverse_checker, nodes, child)
                 nodes[node] = [nodes[node][0] + answer, nodes[node][1] + 1]
                 return -1*answer
-        next_node = max(children, key= lambda x: self.ucb1(nodes[x][0],nodes[x][1]))
+        next_node = max(children, key= lambda x: self.ucb1(-1*nodes[x][0],nodes[x][1]))
         answer = self.evaluate_node(inverse_checker, nodes, next_node)
         nodes[node] = [nodes[node][0] + answer, nodes[node][1] + 1]
         return -1*answer
@@ -333,7 +333,8 @@ class MCTS:
         for i in range(self.num_iterations):
             self.current_iteration += 1
             self.evaluate_node(checker, nodes, board)
-        answer =  max(self.get_child_nodes(board,checker), key= lambda x: -1*self.ucb1(nodes[x][0],nodes[x][1]))
+        # answer =  max(self.get_child_nodes(board,checker), key= lambda x: self.ucb1(-1*nodes[x][0],nodes[x][1]))
+        answer = max(self.get_child_nodes(board,checker), key = lambda x: -1*nodes[x][0]/nodes[x][1])
         self.first_board.from_string(answer)
         return nodes[board], board
 
@@ -397,15 +398,79 @@ class MCTS:
         self.first_board.from_string(answer)
 
 
-if __name__ == "__main__":
-    def assemble_training_data(num_iters, data_limit, filename):
+
+class BuildNeuralNetwork:
+    def __init__(self, training_data_filename, neural_network_save_filename, width = 6, height = 7):
+        self.width = width
+        self.height = height
+        self.training_data_filename = training_data_filename
+        self.neural_network_save_filename = neural_network_save_filename
+        pass
+
+    def convert_to_NN_readable(self, board, current_checker):
+        #one hot key encryption of the board * 2 for cross-referencing or whatever
+        new_board = [[0,0,1] if x == ' ' else [0,1,0] if x == 'X' else [1,0,0] for x in board]
+        lst = []
+        for i in new_board:
+            for j in i:
+                lst += [j]
+        lst *= 2
+
+        #current checker
+        lst += [1*(current_checker=="O"), -1*(current_checker=="X")]
+
+        #Convolutional Layers
+        #2x2
+        new_list = [0]*(self.height-1)*(self.width-1)
+        for i in range(self.height):
+            for j in range(self.width):
+                chip = board[i*self.width + j]
+                if i != 0 and j != (self.width-1):
+                    new_list[(i-1)*(self.width-1) + j] += 1 if chip == self.checker else -1
+                if j != 0 and i != (self.height-1):
+                    new_list[(i)*(self.width - 1) + (j-1)] += 1 if chip == self.checker else -1
+                if j != 0 and i != 0:
+                    new_list[(i-1) * (self.width - 1) + (j - 1)] += 1 if chip == self.checker else -1
+        lst += new_list
+        #4x4
+        new_list = [0] * (self.height - 3) * (self.width - 3)
+        for i in range(self.height):
+            for j in range(self.width):
+                chip = board[i * self.width + j]
+                if j + 3 < self.width:
+                    for vertical in range(1, min(4, i)):
+                        if i - vertical <= self.height - 4:
+                            new_list[(i - vertical) * (self.width - 3) + j] += 1 if chip == self.checker else -1
+                if i + 3 < self.height:
+                    for horizontal in range(1, min(4, j)):
+                        if j - horizontal <= self.width - 4:
+                            new_list[(i) * (self.width - 3) + (j - horizontal)] += 1 if chip == self.checker else -1
+                if i >= 3 and j >= 3:
+                    for diagonal in range(-3, 0):
+                        if self.width - (j+diagonal) >= 4 and self.height - (i+diagonal) >= 4:
+                            new_list[(i + diagonal) * (self.width - 3) + (j + diagonal)] += 1 if chip == self.checker else -1
+        lst += new_list
+
+        #playable spaces
+        for i in range(self.height):
+            for j in range(self.width):
+                if (board[i * self.width + j] != ' ' and board[(i - 1) * self.width + j] == ' ') or (
+                        i == 0 and board[i * self.width + j] == ' '):
+                    lst += [1] if current_checker == self.checker else [-1]
+                else:
+                    lst += [0]
+
+        x = np.array(lst).reshape((338,1))
+        return x
+
+    def assemble_training_data(self, num_iters, data_limit, filename):
         nodes = []
         with open(filename, mode='r') as file:
             # reading the CSV file
             csvFile = csv.reader(file)
             for row in csvFile:
                 nodes += [row]
-        b1 = Board(6, 7)
+        b1 = Board(self.width, self.height)
         mct = MCTS(b1, "X", num_iters, 25)
         count = 1
         start = len(nodes)
@@ -420,80 +485,109 @@ if __name__ == "__main__":
             b1.reset()
             count += 1
             if i/data_limit >= percent/100:
-                print(f"{percent}% . . . {i} completed");
+                print(f"{percent}% . . . {i} completed (File Saved)");
                 percent += 0.1;
                 count = 0
-                with open(filename, 'wb') as output:
+                with open(filename, 'w') as output:
                     np.savetxt(output, nodes, delimiter=",", fmt = "% s")
-        with open(filename, 'wb') as output:
+        with open(filename, 'w') as output:
             np.savetxt(output, nodes, delimiter=",", fmt="% s")
         return len(nodes)
 
+    def train_on_data(self, learning_rate, checker, print_rate = 1000, recycle = 5):
+        self.checker = checker
+        training_data_filename = self.training_data_filename
+        neural_network_save_filename = self.neural_network_save_filename
+        nodes = []
+        with open(training_data_filename, mode='r') as file:
+            # reading the CSV file
+            csvFile = csv.reader(file)
+            for row in csvFile:
+                nodes += [row]
+        neurons_in_layers = ((338, 150, 1))
+        NN = NeuralNetwork(neurons_in_layers)
+        loss = 0
+        for i in range(recycle):
+            for j in range(len(nodes)):
+                loss += NN.gradient_descent([(self.convert_to_NN_readable(nodes[j][0], nodes[j][2]), (int(nodes[j][1])))],
+                                           learning_rate)
+                if j % print_rate == 0:
+                    print(f"Average Loss after {j + (i)*len(nodes)} ({((j + (i)*len(nodes))/(recycle*len(nodes)))*100})% iterations: {loss / print_rate}")
+                    loss = 0
+        with open(neural_network_save_filename, 'wb') as saves:
+            pickle.dump(NN, saves)
+
+if __name__ == "__main__":
+    # #
+    # x = BuildNeuralNetwork('training_data_rep_1000.csv', 'NeuralNetworkrep1000.pickle')
+    # x.assemble_training_data(1000, 100000, '/Users/dylanconnolly/PycharmProjects/ConnectFourNeuralNetwork/training_data_rep_1000.csv')
+    # x.train_on_data(0.000001, "X", print_rate = 10000)
     #assemble training data:
-    assemble_training_data(100, 100000, 'training_data_rep_100.csv')
+    # assemble_training_data(100, 100000, '/Users/dylanconnolly/PycharmProjects/ConnectFourNeuralNetwork/training_data_rep_100.csv')
 
 
     ## Vs person
-    b1 = Board(6, 7)
-    mct = MCTS(b1, "X", 100, 25)
-    rival_mcts = MCTS(b1, "O", 10000, 25)
-    #seconds_to_run_for, filename, learning_rate, print_rate = 10, repetitions = 500
-    mct.run_tree_search_while_updating_NN(10000, "NeuralNetworkrep10.pickle", 0.00001, print_rate=1000, repetitions=10)
-    print("Finished!")
-    while True:
-        mct.run_tree_search_with_neural_network("NeuralNetwork.pickle")
-        print(b1)
-        # inp = int(input("Where would you like to move?\n"))
-        # b1.add_checker("X", inp)
-        if b1.is_win_for("X"):
-            print("My bot has won! Horray!"); break
-        # rival_mcts.run_tree_search()
-        inp = int(input("Where would you like to move?"))
-        b1.add_checker("O", inp)
-        if b1.is_win_for("O"):
-            print("My bot has lost :(")
-            print(b1)
-            break
-
-
     # b1 = Board(6, 7)
-    # #Monte Carlo Search / Neural Network benchmark test against random
-    # mctTest = MCTS(b1, "X", 100, 25)
-    # results_wld = [0, 0, 0]
+    # mct = MCTS(b1, "X", 100000, 25)
+    # rival_mcts = MCTS(b1, "O", 10000, 25)
+    # #seconds_to_run_for, filename, learning_rate, print_rate = 10, repetitions = 500
+    # # mct.run_tree_search_while_updating_NN(10000, "NeuralNetworkrep10.pickle", 0.00001, print_rate=1000, repetitions=10)
+    # print("Finished!")
     # while True:
-    #     mctTest.run_tree_search_with_neural_network("NeuralNetwork.pickle")
-    #     # mctTest.run_tree_search()
+    #     # mct.run_tree_search_with_neural_network("NeuralNetwork.pickle")
+    #     mct.run_tree_search("X")
+    #     print(b1)
+    #     # inp = int(input("Where would you like to move?\n"))
+    #     # b1.add_checker("X", inp)
     #     if b1.is_win_for("X"):
-    #         results_wld[0] += 1
-    #         b1.reset()
-    #         print(f"Win Rate: {results_wld[0] / sum(results_wld)}\nLoss Rate: {results_wld[2] / sum(results_wld)}\n"
-    #               f"Num Games: {sum(results_wld)}\n")
-    #     options = []
-    #     for i in range(6):
-    #         if b1.can_add_to(col=i):
-    #             options += [i]
-    #     choice = random.choice(options)
-    #     b1.add_checker("O", choice)
+    #         print("My bot has won! Horray!"); break
+    #     # rival_mcts.run_tree_search()
+    #     inp = int(input("Where would you like to move?"))
+    #     b1.add_checker("O", inp)
     #     if b1.is_win_for("O"):
-    #         results_wld[2] += 1
-    #         b1.reset()
-    #         print(f"Win Rate: {results_wld[0] / sum(results_wld)}\nLoss Rate: {results_wld[2] / sum(results_wld)}\n"
-    #               f"Num Games: {sum(results_wld)}\n")
-    #     if b1.is_full():
-    #         results_wld[1] += 1
-    #         print(f"Win Rate: {results_wld[0] / sum(results_wld)}\nLoss Rate: {results_wld[2] / sum(results_wld)}\n"
-    #               f"Num Games: {sum(results_wld)}\n")
-    #         b1.reset()
+    #         print("My bot has lost :(")
+    #         print(b1)
+    #         break
+
+
+    # #Monte Carlo Search / Neural Network benchmark test against random
+    b1 = Board(6, 7)
+    mctTest = MCTS(b1, "X", 1000, 25)
+    results_wld = [0, 0, 0]
+    while True:
+        mctTest.run_tree_search_with_neural_network('/Users/dylanconnolly/PycharmProjects/ConnectFourNeuralNetwork/NeuralNetworkrep100.pickle')
+        # mctTest.run_tree_search()
+        if b1.is_win_for("X"):
+            results_wld[0] += 1
+            b1.reset()
+            print(f"Win Rate: {results_wld[0] / sum(results_wld)}\nLoss Rate: {results_wld[2] / sum(results_wld)}\n"
+                  f"Num Games: {sum(results_wld)}\n")
+        options = []
+        for i in range(6):
+            if b1.can_add_to(col=i):
+                options += [i]
+        choice = random.choice(options)
+        b1.add_checker("O", choice)
+        if b1.is_win_for("O"):
+            results_wld[2] += 1
+            b1.reset()
+            print(f"Win Rate: {results_wld[0] / sum(results_wld)}\nLoss Rate: {results_wld[2] / sum(results_wld)}\n"
+                  f"Num Games: {sum(results_wld)}\n")
+        if b1.is_full():
+            results_wld[1] += 1
+            print(f"Win Rate: {results_wld[0] / sum(results_wld)}\nLoss Rate: {results_wld[2] / sum(results_wld)}\n"
+                  f"Num Games: {sum(results_wld)}\n")
+            b1.reset()
 
 
     # # NN vs 1000 MCTS
     # b1 = Board(6, 7)
     # mct = MCTS(b1, "X", 100, 25)
-    # rival_mcts = MCTS(b1, "O", 1000, 25)
+    # rival_mcts = MCTS(b1, "O", 100, 25)
     # results_wld = [0,0,0]
     # # print("Finished!")
     # while True:
-    #     mct.run_tree_search_with_neural_network("NeuralNetwork.pickle")
+    #     mct.run_tree_search_with_neural_network("NeuralNetworkrep100.pickle")
     #     if b1.is_win_for("X"):
     #         results_wld[0] += 1
     #         b1.reset()
